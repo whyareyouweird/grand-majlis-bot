@@ -27,6 +27,8 @@ import sys
 import datetime
 import traceback
 import asyncio
+import re
+from collections import defaultdict
 
 # Ensure UTF-8 output
 if sys.stdout:
@@ -820,6 +822,273 @@ async def on_member_join(member):
 async def on_member_remove(member):
     """Update voice member counter when someone leaves."""
     await update_member_counter(member.guild)
+
+# ==============================================================================
+# ANTI-ADMIN ABUSE & ISLAMIC ADAB SECURITY ENGINE
+# ==============================================================================
+
+PROFANITY_PATTERNS = [
+    r"f[\W_]*[\*u@4o]+[\W_]*c*[\W_]*k+",
+    r"f[\W_]*\*+[\W_]*k+",
+    r"f+[\W_]*u+[\W_]*c+[\W_]*k+",
+    r"s+[\W_]*[h#]+[\W_]*[\*i!1|]+[\W_]*t+",
+    r"s+[\W_]*\*+[\W_]*t+",
+    r"b+[\W_]*[\*i!1|]+[\W_]*t+[\W_]*c+[\W_]*h+",
+    r"c+[\W_]*[\*u@4]+[\W_]*n+[\W_]*t+",
+    r"a+[\W_]*[s$5]{2,}[\W_]*h+[\W_]*[o0]+[\W_]*l+[\W_]*e+",
+    r"w+[\W_]*h+[\W_]*[o0]+[\W_]*r+[\W_]*e+",
+    r"s+[\W_]*l+[\W_]*[\*u]+[\W_]*t+",
+    r"d+[\W_]*[\*i!1|]+[\W_]*c+[\W_]*k+",
+    r"p+[\W_]*[\*u]+[\W_]*[s$5]{2,}[\W_]*y+",
+    r"n+[\W_]*[\*i!1|]+[\W_]*g+[\W_]*g+[\W_]*[e3a4]+[\W_]*r*",
+    r"f+[\W_]*[a@4]+[\W_]*g+[\W_]*g+[\W_]*[o0]+[\W_]*t+",
+    r"r+[\W_]*[e3]+[\W_]*t+[\W_]*[a@4]+[\W_]*r+[\W_]*d+",
+    r"\bk+y+s+\b",
+    r"\bs+t+f+u+\b",
+]
+COMPILED_PROFANITY = [re.compile(p, re.IGNORECASE) for p in PROFANITY_PATTERNS]
+
+INVITE_REGEX = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:discord\.(?:gg|io|me|li)|discord(?:app)?\.com/invite)/[a-zA-Z0-9]+",
+    re.IGNORECASE
+)
+
+SUSPICIOUS_LINKS = re.compile(
+    r"(grabify|iplogger|2no\.co|blasze|free-nitro|steamcommunity[^\s/]*\.link|discrod|dlscord)",
+    re.IGNORECASE
+)
+
+def check_profanity(text: str) -> bool:
+    for pattern in COMPILED_PROFANITY:
+        if pattern.search(text):
+            return True
+    return False
+
+user_msg_times = defaultdict(list)
+staff_action_history = defaultdict(list)
+
+async def check_staff_abuse(guild: discord.Guild, action_type: discord.AuditLogAction, threshold: int):
+    """Detect and stop rogue moderators from mass-banning or deleting channels/roles."""
+    try:
+        async for entry in guild.audit_logs(limit=1, action=action_type):
+            actor = entry.user
+            if not actor or actor.bot or actor.id == guild.owner_id or actor.id == bot.user.id:
+                return
+
+            now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            key = (actor.id, action_type)
+            history = staff_action_history[key]
+            history = [t for t in history if now - t < 60]
+            history.append(now)
+            staff_action_history[key] = history
+
+            if len(history) >= threshold:
+                member = guild.get_member(actor.id)
+                if member:
+                    # Strip dangerous staff roles immediately
+                    roles_to_remove = [
+                        r for r in member.roles 
+                        if r.permissions.kick_members or r.permissions.ban_members or 
+                           r.permissions.manage_channels or r.permissions.manage_roles or 
+                           r.permissions.manage_messages or r.permissions.administrator
+                    ]
+                    if roles_to_remove:
+                        try:
+                            await member.remove_roles(*roles_to_remove, reason="Anti-Admin Abuse: Mass action detected")
+                        except Exception as e:
+                            print(f"Error revoking staff roles: {e}")
+
+                    # Apply emergency 28-day timeout
+                    try:
+                        await member.timeout(datetime.timedelta(days=28), reason="Anti-Admin Abuse: Emergency security lock")
+                    except Exception as e:
+                        print(f"Error applying emergency timeout: {e}")
+
+                    log_ch = discord.utils.get(guild.text_channels, name="╰・📊・server-logs")
+                    desk_ch = discord.utils.get(guild.text_channels, name="┊・📋・moderation-desk")
+                    
+                    alert_embed = discord.Embed(
+                        title="🚨 ∙ EMERGENCY: ANTI-ADMIN ABUSE TRIGGERED",
+                        description=(
+                            f"**Rogue Account:** {member.mention} (`{member.name}` - ID: `{member.id}`)\n"
+                            f"**Action Detected:** Rapid {action_type.name.replace('_', ' ').title()} ({len(history)} in under 60 seconds)\n\n"
+                            "🛡️ **Automated Security Protocol Executed:**\n"
+                            "• All moderation and administrative roles have been revoked.\n"
+                            "• Account has been placed in an immediate 28-day timeout.\n"
+                            "• Server channels and member roster are protected."
+                        ),
+                        color=0xFF0000
+                    )
+                    alert_embed.set_footer(text="The Grand Majlis ∙ Anti-Nuke Shield 🤍")
+
+                    if log_ch:
+                        await log_ch.send(content=f"⚠️ <@{guild.owner_id}> Emergency Anti-Admin Abuse Alert!", embed=alert_embed)
+                    if desk_ch:
+                        await desk_ch.send(embed=alert_embed)
+    except Exception as e:
+        print(f"Notice in check_staff_abuse: {e}")
+
+@bot.event
+async def on_member_ban(guild, user):
+    await check_staff_abuse(guild, discord.AuditLogAction.ban, threshold=3)
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    await check_staff_abuse(channel.guild, discord.AuditLogAction.channel_delete, threshold=2)
+
+@bot.event
+async def on_guild_role_delete(role):
+    await check_staff_abuse(role.guild, discord.AuditLogAction.role_delete, threshold=2)
+
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+
+    guild = message.guild
+    if not guild:
+        await bot.process_commands(message)
+        return
+
+    author = message.author
+    is_owner = (author.id == guild.owner_id)
+
+    # 1. ANTI-SPAM PINGS: @everyone and @here protection (only Owner allowed)
+    if not is_owner and (message.mention_everyone or "@everyone" in message.content or "@here" in message.content):
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        try:
+            await author.timeout(datetime.timedelta(hours=1), reason="Anti-Abuse: Unauthorized @everyone/@here ping")
+        except Exception:
+            pass
+
+        log_ch = discord.utils.get(guild.text_channels, name="╰・📊・server-logs")
+        if log_ch:
+            embed = discord.Embed(
+                title="🛡️ ∙ Anti-Abuse: Unauthorized Mention Blocked",
+                description=f"**User:** {author.mention} (`{author.name}`)\n**Channel:** {message.channel.mention}\n**Action:** Message deleted & 1-hour timeout applied.\n**Violation:** Attempted unauthorized `@everyone` / `@here` ping.",
+                color=0xFF4B4B
+            )
+            await log_ch.send(embed=embed)
+        return
+
+    # 2. ANTI-MASS MENTION (> 3 mentions)
+    if not is_owner and len(message.mentions) > 3:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        try:
+            await author.timeout(datetime.timedelta(minutes=15), reason="Anti-Abuse: Mass mention spam")
+        except Exception:
+            pass
+
+        log_ch = discord.utils.get(guild.text_channels, name="╰・📊・server-logs")
+        if log_ch:
+            embed = discord.Embed(
+                title="🛡️ ∙ Anti-Abuse: Mass Mention Spam Blocked",
+                description=f"**User:** {author.mention} (`{author.name}`)\n**Channel:** {message.channel.mention}\n**Mentions Count:** `{len(message.mentions)}`\n**Action:** Message deleted & 15-minute timeout applied.",
+                color=0xFF4B4B
+            )
+            await log_ch.send(embed=embed)
+        return
+
+    # 3. ANTI-MESSAGE FLOODING (5 messages in 3 seconds)
+    if not is_owner:
+        now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        times = user_msg_times[author.id]
+        times = [t for t in times if now - t < 3.0]
+        times.append(now)
+        user_msg_times[author.id] = times
+
+        if len(times) >= 5:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            try:
+                await author.timeout(datetime.timedelta(minutes=5), reason="Anti-Abuse: Rapid message flooding")
+            except Exception:
+                pass
+            log_ch = discord.utils.get(guild.text_channels, name="╰・📊・server-logs")
+            if log_ch:
+                embed = discord.Embed(
+                    title="🛡️ ∙ Anti-Abuse: Rapid Message Flooding Blocked",
+                    description=f"**User:** {author.mention} (`{author.name}`)\n**Channel:** {message.channel.mention}\n**Action:** Message deleted & 5-minute timeout applied.\n**Violation:** Sent 5+ messages in under 3 seconds.",
+                    color=0xFF9900
+                )
+                await log_ch.send(embed=embed)
+            return
+
+    # 4. ANTI-BAD WORDS / PROFANITY FILTER (Islamic Adab)
+    if not is_owner and check_profanity(message.content):
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        try:
+            await author.send(
+                "السَّلَامُ عَلَيْكُمْ.\n"
+                "Your message in **The Grand Majlis** was removed for containing inappropriate or vulgar language.\n"
+                "Please preserve Islamic character (*Adab*) and clean speech in our community sanctuary. 🕊️"
+            )
+        except Exception:
+            pass
+
+        log_ch = discord.utils.get(guild.text_channels, name="╰・📊・server-logs")
+        if log_ch:
+            embed = discord.Embed(
+                title="🕊️ ∙ Islamic Adab Filter: Inappropriate Language Removed",
+                description=(
+                    f"**User:** {author.mention} (`{author.name}`)\n"
+                    f"**Channel:** {message.channel.mention}\n"
+                    f"**Action:** Message deleted automatically.\n"
+                    f"**Adab Standard:** Zero tolerance for profanity, vulgarity, or offensive words."
+                ),
+                color=0xFF9900
+            )
+            await log_ch.send(embed=embed)
+        return
+
+    # 5. ANTI-BAD LINKS & UNAUTHORIZED INVITES
+    if not is_owner:
+        has_invite = bool(INVITE_REGEX.search(message.content))
+        has_suspicious = bool(SUSPICIOUS_LINKS.search(message.content))
+        
+        if has_invite or has_suspicious:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            
+            reason_str = "Unauthorized Discord Invite Link" if has_invite else "Suspicious / Phishing URL"
+            try:
+                await author.send(
+                    f"⚠️ Your link in **The Grand Majlis** was removed ({reason_str}).\n"
+                    "Server advertising, invite links, and untrusted URLs are strictly forbidden."
+                )
+            except Exception:
+                pass
+
+            log_ch = discord.utils.get(guild.text_channels, name="╰・📊・server-logs")
+            if log_ch:
+                embed = discord.Embed(
+                    title=f"🛡️ ∙ Anti-Abuse: {reason_str} Blocked",
+                    description=(
+                        f"**User:** {author.mention} (`{author.name}`)\n"
+                        f"**Channel:** {message.channel.mention}\n"
+                        f"**Action:** Link deleted automatically.\n"
+                        f"**Protection:** Server link safety & anti-raid protocol."
+                    ),
+                    color=0xFF4B4B
+                )
+                await log_ch.send(embed=embed)
+            return
+
+    # Always process bot commands
+    await bot.process_commands(message)
 
 @bot.command(name="setuproles")
 @commands.has_permissions(administrator=True)
