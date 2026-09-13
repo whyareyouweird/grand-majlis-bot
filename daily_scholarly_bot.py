@@ -470,13 +470,6 @@ def build_welcome_text(member):
     )
 
 async def post_daily_if_due(force=False):
-    tracker = load_tracker()
-    today_str = datetime.date.today().isoformat()
-
-    if not force and tracker.get("last_posted_date") == today_str:
-        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Daily reminder already posted for today ({today_str}). Skipping.")
-        return False
-
     guild = bot.get_guild(GUILD_ID)
     if not guild:
         return False
@@ -484,6 +477,30 @@ async def post_daily_if_due(force=False):
     channel = discord.utils.get(guild.text_channels, name="┊・🕋・daily-ayah-hadith")
     if not channel:
         return False
+
+    tracker = load_tracker()
+    today_str = datetime.date.today().isoformat()
+
+    if not force:
+        # 1. Check local tracker
+        if tracker.get("last_posted_date") == today_str:
+            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Daily reminder already recorded for today ({today_str}). Skipping.")
+            return False
+
+        # 2. Check Discord channel directly (cross-reset single source of truth)
+        try:
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            async for msg in channel.history(limit=15):
+                if msg.author.id == bot.user.id and msg.embeds:
+                    # If posted within the last 18 hours or on the same UTC day, skip!
+                    age_hours = (now_utc - msg.created_at).total_seconds() / 3600
+                    if age_hours < 18 or msg.created_at.date() == now_utc.date():
+                        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Daily reminder was already sent to Discord today ({age_hours:.1f}h ago). Skipping.")
+                        tracker["last_posted_date"] = today_str
+                        save_tracker(tracker)
+                        return False
+        except Exception as e:
+            print(f"Notice checking channel history: {e}")
 
     q_step = tracker.get("quran_step", 0) % len(FOUNDATIONAL_AYAHS)
     h_step = tracker.get("hadith_step", 0)
@@ -571,9 +588,12 @@ async def post_daily_if_due(force=False):
     save_tracker(tracker)
     return True
 
-@tasks.loop(minutes=30)
+@tasks.loop(minutes=15)
 async def check_daily_schedule():
-    await post_daily_if_due(force=False)
+    """Checks every 15 minutes, but only triggers during the morning window (06:00 - 06:30 UTC)."""
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    if now_utc.hour == 6 and now_utc.minute < 30:
+        await post_daily_if_due(force=False)
 
 @bot.event
 async def on_ready():
@@ -588,11 +608,8 @@ async def on_ready():
     if guild:
         # Sync voice member counter
         await update_member_counter(guild)
-        # Setup/refresh dashboard in #verify-and-roles
+        # Ensure dashboard in #verify-and-roles exists (skips if already posted)
         await publish_verification_dashboard(guild)
-
-    # Check daily post
-    await post_daily_if_due(force=False)
 
     if not check_daily_schedule.is_running():
         check_daily_schedule.start()
