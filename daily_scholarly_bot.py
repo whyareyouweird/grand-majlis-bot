@@ -639,7 +639,13 @@ async def post_daily_if_due(force=False):
 def get_ffmpeg_path():
     try:
         import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
+        import stat
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        try:
+            os.chmod(exe, os.stat(exe).st_mode | stat.S_IEXEC)
+        except Exception:
+            pass
+        return exe
     except Exception:
         import shutil
         return shutil.which("ffmpeg") or "ffmpeg"
@@ -649,7 +655,7 @@ FFMPEG_OPTS = "-vn -loglevel warning"
 
 QURAN_RECITERS = [
     {"name": "Sheikh Mishary Rashid Alafasy", "url": "https://server8.mp3quran.net/afs/{surah:03d}.mp3"},
-    {"name": "Sheikh Abdul Basit (Mujawwad)", "url": "https://server7.mp3quran.net/basit/Mujawwad/{surah:03d}.mp3"},
+    {"name": "Sheikh Abdul Basit Abdul Samad", "url": "https://server7.mp3quran.net/basit/{surah:03d}.mp3"},
     {"name": "Sheikh Yasser Al-Dossari", "url": "https://server11.mp3quran.net/yasser/{surah:03d}.mp3"},
     {"name": "Sheikh Maher Al-Muaiqly", "url": "https://server12.mp3quran.net/maher/{surah:03d}.mp3"},
     {"name": "Sheikh Nasser Al-Qatami", "url": "https://server6.mp3quran.net/qtm/{surah:03d}.mp3"},
@@ -675,19 +681,25 @@ current_recitation = {
     "url": None
 }
 is_radio_mode = False
+is_advancing_track = False
 
 async def play_next_recitation(guild):
     """Play the next beautiful Surah recitation or live stream."""
-    global playlist_index, current_recitation, is_radio_mode
+    global playlist_index, current_recitation, is_radio_mode, is_advancing_track
     
     vc = guild.voice_client
     if not vc or not vc.is_connected():
         return
 
-    if vc.is_playing():
-        vc.stop()
+    if is_advancing_track:
+        return
+    is_advancing_track = True
 
     try:
+        if vc.is_playing() or vc.is_paused():
+            vc.stop()
+            await asyncio.sleep(0.5)
+
         ffmpeg_exe = get_ffmpeg_path()
         if is_radio_mode:
             url = TARATEEL_RADIO_URL
@@ -716,7 +728,8 @@ async def play_next_recitation(guild):
         def after_playing(error):
             if error:
                 print(f"Quran playback note: {error}")
-            asyncio.run_coroutine_threadsafe(play_next_recitation(guild), bot.loop)
+            if guild.voice_client and guild.voice_client.is_connected():
+                asyncio.run_coroutine_threadsafe(play_next_recitation(guild), bot.loop)
 
         source = discord.FFmpegPCMAudio(
             url,
@@ -741,6 +754,8 @@ async def play_next_recitation(guild):
             pass
     except Exception as e:
         print(f"Error starting Quran recitation: {e}")
+    finally:
+        is_advancing_track = False
 
 @tasks.loop(seconds=15)
 async def ensure_quran_vc_stream():
@@ -756,6 +771,13 @@ async def ensure_quran_vc_stream():
         return
 
     vc = guild.voice_client
+    if vc and not vc.is_connected():
+        try:
+            await vc.disconnect(force=True)
+        except Exception:
+            pass
+        vc = None
+
     if not vc or not vc.is_connected():
         try:
             print("Connecting bot to Quran Recitation VC...")
