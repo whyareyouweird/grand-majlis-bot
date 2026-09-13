@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: grand-majlis-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python daily_scholarly_bot.py
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"

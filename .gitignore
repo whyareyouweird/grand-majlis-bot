@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*$py.class
+bot_runtime.log
+daily_tracker.json
+.env
+*.bat
+*.vbs
+build_server.py
+setup_server.py
+post_verified_reminder.py
+download_authentic_sources.py
+download_classical_books.py
