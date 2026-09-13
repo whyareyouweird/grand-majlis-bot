@@ -650,7 +650,7 @@ def get_ffmpeg_path():
         import shutil
         return shutil.which("ffmpeg") or "ffmpeg"
 
-FFMPEG_BEFORE_OPTS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
+FFMPEG_BEFORE_OPTS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 3 -timeout 15000000 -nostdin"
 FFMPEG_OPTS = "-vn -loglevel warning"
 
 QURAN_RECITERS = [
@@ -1347,6 +1347,40 @@ async def start_web_server():
         # 6. Task loop status
         diag["ensure_quran_vc_loop_running"] = ensure_quran_vc_stream.is_running()
         diag["daily_schedule_loop_running"] = check_daily_schedule.is_running()
+
+        # 7. FFmpeg probe test — can it actually reach and decode an audio URL?
+        test_url = "https://server8.mp3quran.net/afs/001.mp3"
+        try:
+            import subprocess
+            ffmpeg_exe = get_ffmpeg_path()
+            result = subprocess.run(
+                [ffmpeg_exe, "-i", test_url, "-t", "1", "-f", "null", "-"],
+                capture_output=True, text=True, timeout=10
+            )
+            diag["ffmpeg_probe_test"] = {
+                "url": test_url,
+                "returncode": result.returncode,
+                "stderr_tail": result.stderr[-500:] if result.stderr else "",
+                "success": result.returncode == 0
+            }
+        except subprocess.TimeoutExpired:
+            diag["ffmpeg_probe_test"] = {"url": test_url, "error": "TIMEOUT after 10s"}
+        except Exception as probe_err:
+            diag["ffmpeg_probe_test"] = {"url": test_url, "error": str(probe_err)}
+
+        # 8. HTTP fetch test — can aiohttp reach the audio server?
+        try:
+            import aiohttp as _aiohttp
+            async with _aiohttp.ClientSession() as sess:
+                async with sess.head(test_url, timeout=_aiohttp.ClientTimeout(total=5)) as resp:
+                    diag["http_fetch_test"] = {
+                        "url": test_url,
+                        "status": resp.status,
+                        "content_type": resp.headers.get("Content-Type", ""),
+                        "content_length": resp.headers.get("Content-Length", "")
+                    }
+        except Exception as fetch_err:
+            diag["http_fetch_test"] = {"url": test_url, "error": str(fetch_err)}
 
         return web.Response(
             text=_json.dumps(diag, indent=2, ensure_ascii=False, default=str),
