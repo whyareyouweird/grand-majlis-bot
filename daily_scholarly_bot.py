@@ -413,10 +413,22 @@ async def publish_verification_dashboard(guild, force=False):
 # ==============================================================================
 
 async def update_member_counter(guild):
-    """Ensure the locked voice channel reflects the exact live member count without duplicating."""
+    """Ensure the locked voice channel reflects the exact live member count and SERVER STATS stays at position 0."""
     count = guild.member_count
     target_name = f"👥 Members: {count}"
     
+    cat_stats = discord.utils.get(guild.categories, name="╭─・📊 ∙ 𝐒𝐄𝐑𝐕𝐄𝐑 ∙ 𝐒𝐓𝐀𝐓𝐒")
+    if not cat_stats:
+        try:
+            cat_stats = await guild.create_category("╭─・📊 ∙ 𝐒𝐄𝐑𝐕𝐄𝐑 ∙ 𝐒𝐓𝐀𝐓𝐒", position=0)
+        except Exception:
+            pass
+    elif cat_stats.position != 0:
+        try:
+            await cat_stats.edit(position=0)
+        except Exception:
+            pass
+
     # Find any voice channels that contain 'Members:'
     matching_vcs = [c for c in guild.voice_channels if "Members:" in c.name]
     
@@ -430,20 +442,26 @@ async def update_member_counter(guild):
 
     if matching_vcs:
         vc = matching_vcs[0]
+        kwargs = {}
         if vc.name != target_name:
+            kwargs["name"] = target_name
+        if cat_stats and vc.category_id != cat_stats.id:
+            kwargs["category"] = cat_stats
+            kwargs["position"] = 0
+        if kwargs:
             try:
-                await vc.edit(name=target_name)
-                print(f"Updated member counter to: '{target_name}'")
+                await vc.edit(**kwargs)
+                print(f"Updated member counter: {kwargs}")
             except Exception as e:
                 print(f"Notice on updating counter channel: {e}")
     else:
-        cat_stats = discord.utils.get(guild.categories, name="╭─・📊 ∙ 𝐒𝐄𝐑𝐕𝐄𝐑 ∙ 𝐒𝐓𝐀𝐓𝐒")
-        if not cat_stats:
-            cat_stats = await guild.create_category("╭─・📊 ∙ 𝐒𝐄𝐑𝐕𝐄𝐑 ∙ 𝐒𝐓𝐀𝐓𝐒", position=0)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=True, connect=False)
         }
-        await cat_stats.create_voice_channel(target_name, overwrites=overwrites)
+        if cat_stats:
+            await cat_stats.create_voice_channel(target_name, overwrites=overwrites, position=0)
+        else:
+            await guild.create_voice_channel(target_name, overwrites=overwrites, position=0)
         print(f"Created member counter voice channel: '{target_name}'")
 
 def build_welcome_text(member):
