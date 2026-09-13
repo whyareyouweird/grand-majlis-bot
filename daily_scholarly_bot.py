@@ -606,6 +606,149 @@ async def post_daily_if_due(force=False):
     save_tracker(tracker)
     return True
 
+# ==============================================================================
+# 24/7 QURAN RECITATION VOICE STREAMER
+# ==============================================================================
+
+def get_ffmpeg_path():
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        import shutil
+        return shutil.which("ffmpeg") or "ffmpeg"
+
+FFMPEG_BEFORE_OPTS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
+FFMPEG_OPTS = "-vn -loglevel warning"
+
+QURAN_RECITERS = [
+    {"name": "Sheikh Mishary Rashid Alafasy", "url": "https://server8.mp3quran.net/afs/{surah:03d}.mp3"},
+    {"name": "Sheikh Abdul Basit (Mujawwad)", "url": "https://server7.mp3quran.net/basit/Mujawwad/{surah:03d}.mp3"},
+    {"name": "Sheikh Yasser Al-Dossari", "url": "https://server11.mp3quran.net/yasser/{surah:03d}.mp3"},
+    {"name": "Sheikh Maher Al-Muaiqly", "url": "https://server12.mp3quran.net/maher/{surah:03d}.mp3"},
+    {"name": "Sheikh Nasser Al-Qatami", "url": "https://server6.mp3quran.net/qtm/{surah:03d}.mp3"},
+    {"name": "Sheikh Mahmoud Khalil Al-Husary", "url": "https://server13.mp3quran.net/husr/{surah:03d}.mp3"},
+    {"name": "Sheikh Abu Bakr Al-Shatri", "url": "https://server11.mp3quran.net/shatri/{surah:03d}.mp3"},
+    {"name": "Sheikh Saad Al-Ghamdi", "url": "https://server7.mp3quran.net/s_gmd/{surah:03d}.mp3"},
+    {"name": "Sheikh Saud Al-Shuraim", "url": "https://server7.mp3quran.net/shur/{surah:03d}.mp3"},
+    {"name": "Sheikh Abdul Rahman Al-Sudais", "url": "https://server11.mp3quran.net/sds/{surah:03d}.mp3"},
+]
+
+FAVORITE_SURAHS = [
+    1, 18, 19, 20, 36, 49, 50, 55, 56, 59, 67, 75, 76, 78, 87, 89, 93, 94, 95, 96, 97, 103, 108, 112, 113, 114,
+    2, 3, 12, 14, 21, 23, 25, 31, 32, 39, 48, 53, 62
+]
+
+TARATEEL_RADIO_URL = "https://backup.qurango.net/radio/tarateel"
+
+playlist_index = 0
+current_recitation = {
+    "title": "Continuous Quran Recitation",
+    "reciter": "World Renowned Qaris",
+    "surah_num": 1,
+    "url": None
+}
+is_radio_mode = False
+
+async def play_next_recitation(guild):
+    """Play the next beautiful Surah recitation or live stream."""
+    global playlist_index, current_recitation, is_radio_mode
+    
+    vc = guild.voice_client
+    if not vc or not vc.is_connected():
+        return
+
+    if vc.is_playing():
+        vc.stop()
+
+    try:
+        ffmpeg_exe = get_ffmpeg_path()
+        if is_radio_mode:
+            url = TARATEEL_RADIO_URL
+            title = "24/7 Live Tarateel Radio"
+            reciter = "Various World Renowned Qaris"
+            current_recitation = {"title": title, "reciter": reciter, "surah_num": None, "url": url}
+        else:
+            surah_num = FAVORITE_SURAHS[playlist_index % len(FAVORITE_SURAHS)]
+            reciter_obj = QURAN_RECITERS[(playlist_index // len(FAVORITE_SURAHS)) % len(QURAN_RECITERS)]
+            playlist_index += 1
+
+            surah_name = f"Surah #{surah_num}"
+            if db and "quran_en" in db and surah_num <= len(db["quran_en"]):
+                surah_name = f"Surah {db['quran_en'][surah_num - 1]['englishName']}"
+
+            url = reciter_obj["url"].format(surah=surah_num)
+            title = surah_name
+            reciter = reciter_obj["name"]
+            current_recitation = {
+                "title": title,
+                "reciter": reciter,
+                "surah_num": surah_num,
+                "url": url
+            }
+
+        def after_playing(error):
+            if error:
+                print(f"Quran playback note: {error}")
+            asyncio.run_coroutine_threadsafe(play_next_recitation(guild), bot.loop)
+
+        source = discord.FFmpegPCMAudio(
+            url,
+            executable=ffmpeg_exe,
+            before_options=FFMPEG_BEFORE_OPTS,
+            options=FFMPEG_OPTS
+        )
+        vc.play(source, after=after_playing)
+        print(f"▶️ [Quran Recitation VC] Now playing: {title} by {reciter}")
+
+        # Update bot presence so everyone in the server sees what is playing
+        try:
+            await bot.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name=f"{title} ∙ {reciter[:18]} 🕊️"
+                ),
+                status=discord.Status.online
+            )
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"Error starting Quran recitation: {e}")
+
+@tasks.loop(seconds=15)
+async def ensure_quran_vc_stream():
+    """Ensure bot stays connected 24/7 in ┊・📖・quran-recitation-vc and continues playing."""
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        return
+
+    quran_vc = discord.utils.get(guild.voice_channels, name="┊・📖・quran-recitation-vc")
+    if not quran_vc:
+        quran_vc = next((c for c in guild.voice_channels if "quran-recitation-vc" in c.name), None)
+    if not quran_vc:
+        return
+
+    vc = guild.voice_client
+    if not vc or not vc.is_connected():
+        try:
+            print("Connecting bot to Quran Recitation VC...")
+            await quran_vc.connect(reconnect=True, timeout=30.0, self_deaf=True)
+            await asyncio.sleep(2)
+            await play_next_recitation(guild)
+        except Exception as e:
+            print(f"Notice connecting to Quran VC: {e}")
+    else:
+        # If in wrong voice channel, move to quran_vc
+        if vc.channel.id != quran_vc.id:
+            try:
+                await vc.move_to(quran_vc)
+            except Exception:
+                pass
+        # If connected but stopped/idle, advance to next recitation
+        if not vc.is_playing() and not vc.is_paused():
+            print("Quran stream idle. Resuming recitation...")
+            await play_next_recitation(guild)
+
 @tasks.loop(minutes=15)
 async def check_daily_schedule():
     """Checks every 15 minutes, but only triggers during the morning window (06:00 - 06:30 UTC)."""
@@ -632,6 +775,10 @@ async def on_ready():
     if not check_daily_schedule.is_running():
         check_daily_schedule.start()
         print("⏰ 30-minute background calendar monitor is active!")
+
+    if not ensure_quran_vc_stream.is_running():
+        ensure_quran_vc_stream.start()
+        print("🎙️ 24/7 Quran VC Recitation watchdog active!")
 
     await bot.change_presence(
         activity=discord.Activity(
@@ -761,6 +908,45 @@ async def cmd_status(ctx):
         color=0xFFFFFF
     )
     await ctx.send(embed=embed)
+
+@bot.command(name="skip", aliases=["next"])
+async def cmd_skip(ctx):
+    """Skip to the next beautiful Quran recitation in the voice channel."""
+    if ctx.guild.voice_client and ctx.guild.voice_client.is_connected():
+        await ctx.send("⏭️ *Skipping to the next beautiful recitation...*")
+        await play_next_recitation(ctx.guild)
+    else:
+        await ctx.send("The bot is not currently in the voice channel.")
+
+@bot.command(name="nowplaying", aliases=["np"])
+async def cmd_nowplaying(ctx):
+    """View the currently playing Surah and reciter in the voice channel."""
+    title = current_recitation.get("title", "Continuous Quran Recitation")
+    reciter = current_recitation.get("reciter", "World Renowned Qaris")
+    surah_num = current_recitation.get("surah_num")
+
+    desc = f"**Currently Reciting:** `{title}`\n**Qari:** `{reciter}`\n\n🕊️ *Live 24/7 in <#1548478297996787756>*"
+    if surah_num and db and "quran_ar" in db and surah_num <= len(db["quran_ar"]):
+        ar_name = db["quran_ar"][surah_num - 1]["name"]
+        desc = f"### {ar_name}\n**Currently Reciting:** `{title}`\n**Qari:** `{reciter}`\n\n🕊️ *Live 24/7 in <#1548478297996787756>*"
+
+    embed = discord.Embed(
+        title="🎙️ ∙ Live Quran Recitation Stream",
+        description=desc,
+        color=0xFFFFFF
+    )
+    embed.set_footer(text="The Grand Majlis ∙ Preserving the Sacred Word 🤍")
+    await ctx.send(embed=embed)
+
+@bot.command(name="radio")
+async def cmd_radio(ctx):
+    """Toggle between rotating Surahs and 24/7 live continuous Tarateel radio."""
+    global is_radio_mode
+    is_radio_mode = not is_radio_mode
+    mode_str = "24/7 Live Tarateel Radio" if is_radio_mode else "Rotating Surahs & Iconic Qaris"
+    await ctx.send(f"📻 Switched Quran recitation mode to: **{mode_str}**")
+    if ctx.guild.voice_client and ctx.guild.voice_client.is_connected():
+        await play_next_recitation(ctx.guild)
 
 async def start_web_server():
     """Starts a lightweight HTTP server for Render / cloud health checks when PORT is set."""
