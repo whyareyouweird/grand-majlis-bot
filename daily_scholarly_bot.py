@@ -681,81 +681,95 @@ current_recitation = {
     "url": None
 }
 is_radio_mode = False
-is_advancing_track = False
+_play_lock = asyncio.Lock()
 
 async def play_next_recitation(guild):
     """Play the next beautiful Surah recitation or live stream."""
-    global playlist_index, current_recitation, is_radio_mode, is_advancing_track
-    
+    global playlist_index, current_recitation, is_radio_mode
+
     vc = guild.voice_client
     if not vc or not vc.is_connected():
+        print("⚠️ play_next_recitation: No voice client or not connected, skipping.")
         return
 
-    if is_advancing_track:
+    # Non-blocking check: if already advancing, let the watchdog retry later
+    if _play_lock.locked():
+        print("⚠️ play_next_recitation: Lock held, deferring to watchdog.")
         return
-    is_advancing_track = True
 
-    try:
-        if vc.is_playing() or vc.is_paused():
-            vc.stop()
-            await asyncio.sleep(0.5)
-
-        ffmpeg_exe = get_ffmpeg_path()
-        if is_radio_mode:
-            url = TARATEEL_RADIO_URL
-            title = "24/7 Live Tarateel Radio"
-            reciter = "Various World Renowned Qaris"
-            current_recitation = {"title": title, "reciter": reciter, "surah_num": None, "url": url}
-        else:
-            surah_num = FAVORITE_SURAHS[playlist_index % len(FAVORITE_SURAHS)]
-            reciter_obj = QURAN_RECITERS[(playlist_index // len(FAVORITE_SURAHS)) % len(QURAN_RECITERS)]
-            playlist_index += 1
-
-            surah_name = f"Surah #{surah_num}"
-            if db and "quran_en" in db and surah_num <= len(db["quran_en"]):
-                surah_name = f"Surah {db['quran_en'][surah_num - 1]['englishName']}"
-
-            url = reciter_obj["url"].format(surah=surah_num)
-            title = surah_name
-            reciter = reciter_obj["name"]
-            current_recitation = {
-                "title": title,
-                "reciter": reciter,
-                "surah_num": surah_num,
-                "url": url
-            }
-
-        def after_playing(error):
-            if error:
-                print(f"Quran playback note: {error}")
-            if guild.voice_client and guild.voice_client.is_connected():
-                asyncio.run_coroutine_threadsafe(play_next_recitation(guild), bot.loop)
-
-        source = discord.FFmpegPCMAudio(
-            url,
-            executable=ffmpeg_exe,
-            before_options=FFMPEG_BEFORE_OPTS,
-            options=FFMPEG_OPTS
-        )
-        audio_volume = discord.PCMVolumeTransformer(source, volume=1.0)
-        vc.play(audio_volume, after=after_playing)
-        print(f"▶️ [Quran Recitation VC] Audio transmitting: {title} by {reciter}")
-
-        # Update bot presence so everyone in the server sees what is playing
+    async with _play_lock:
         try:
-            await bot.change_presence(
-                activity=discord.Activity(
-                    type=discord.ActivityType.listening,
-                    name=f"{title} ∙ {reciter[:18]} 🕊️"
-                ),
-                status=discord.Status.online
+            if vc.is_playing() or vc.is_paused():
+                vc.stop()
+                await asyncio.sleep(0.3)
+
+            ffmpeg_exe = get_ffmpeg_path()
+            if is_radio_mode:
+                url = TARATEEL_RADIO_URL
+                title = "24/7 Live Tarateel Radio"
+                reciter = "Various World Renowned Qaris"
+                current_recitation = {"title": title, "reciter": reciter, "surah_num": None, "url": url}
+            else:
+                surah_num = FAVORITE_SURAHS[playlist_index % len(FAVORITE_SURAHS)]
+                reciter_obj = QURAN_RECITERS[(playlist_index // len(FAVORITE_SURAHS)) % len(QURAN_RECITERS)]
+                playlist_index += 1
+
+                surah_name = f"Surah #{surah_num}"
+                if db and "quran_en" in db and surah_num <= len(db["quran_en"]):
+                    surah_name = f"Surah {db['quran_en'][surah_num - 1]['englishName']}"
+
+                url = reciter_obj["url"].format(surah=surah_num)
+                title = surah_name
+                reciter = reciter_obj["name"]
+                current_recitation = {
+                    "title": title,
+                    "reciter": reciter,
+                    "surah_num": surah_num,
+                    "url": url
+                }
+
+            def after_playing(error):
+                if error:
+                    print(f"Quran playback finished with note: {error}")
+                else:
+                    print(f"✅ Finished playing: {current_recitation.get('title', '?')}")
+                # Schedule the next track on the event loop
+                try:
+                    asyncio.run_coroutine_threadsafe(play_next_recitation(guild), bot.loop)
+                except Exception as schedule_err:
+                    print(f"⚠️ Could not schedule next track: {schedule_err}")
+
+            source = discord.FFmpegPCMAudio(
+                url,
+                executable=ffmpeg_exe,
+                before_options=FFMPEG_BEFORE_OPTS,
+                options=FFMPEG_OPTS
             )
-        except Exception:
-            pass
-    except Exception as e:
-        print(f"Error starting Quran recitation: {e}")
-    finally:
-        is_advancing_track = False
+            audio_volume = discord.PCMVolumeTransformer(source, volume=1.0)
+            vc.play(audio_volume, after=after_playing)
+            print(f"▶️ [Quran VC] Now transmitting: {title} by {reciter} | URL: {url}")
+
+            # Update bot presence so everyone in the server sees what is playing
+            try:
+                await bot.change_presence(
+                    activity=discord.Activity(
+                        type=discord.ActivityType.listening,
+                        name=f"{title} ∙ {reciter[:18]} 🕊️"
+                    ),
+                    status=discord.Status.online
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"❌ Error starting Quran recitation: {e}")
+            import traceback as _tb
+            _tb.print_exc()
+            # Auto-skip to next track after a brief delay
+            await asyncio.sleep(3)
+            try:
+                asyncio.run_coroutine_threadsafe(play_next_recitation(guild), bot.loop)
+            except Exception:
+                pass
 
 @tasks.loop(seconds=15)
 async def ensure_quran_vc_stream():
@@ -1328,6 +1342,7 @@ async def start_web_server():
         diag["current_recitation"] = current_recitation
         diag["playlist_index"] = playlist_index
         diag["is_radio_mode"] = is_radio_mode
+        diag["play_lock_held"] = _play_lock.locked()
 
         # 6. Task loop status
         diag["ensure_quran_vc_loop_running"] = ensure_quran_vc_stream.is_running()
