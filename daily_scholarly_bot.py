@@ -1283,9 +1283,66 @@ async def start_web_server():
             status=200
         )
 
+    async def handle_voice_diagnostics(request):
+        """Returns detailed voice diagnostics JSON without needing to log in with the token."""
+        import json as _json
+        diag = {}
+
+        # 1. Opus
+        diag["opus_loaded"] = discord.opus.is_loaded()
+        opus_path = os.path.join(BASE_DIR, "libopus.so.0")
+        diag["opus_file_exists"] = os.path.exists(opus_path)
+        diag["opus_file_size"] = os.path.getsize(opus_path) if os.path.exists(opus_path) else 0
+
+        # 2. FFmpeg
+        try:
+            ffmpeg_exe = get_ffmpeg_path()
+            diag["ffmpeg_path"] = ffmpeg_exe
+            diag["ffmpeg_exists"] = os.path.exists(ffmpeg_exe) if ffmpeg_exe != "ffmpeg" else "system"
+        except Exception as e:
+            diag["ffmpeg_path"] = None
+            diag["ffmpeg_error"] = str(e)
+
+        # 3. Bot state
+        diag["bot_ready"] = bot.is_ready()
+        diag["bot_user"] = str(bot.user) if bot.user else None
+        diag["bot_latency_ms"] = round(bot.latency * 1000, 1) if bot.latency else None
+
+        # 4. Guild & Voice
+        guild = bot.get_guild(GUILD_ID) if bot.is_ready() else None
+        diag["guild_found"] = guild is not None
+        if guild:
+            vc = guild.voice_client
+            diag["voice_client_exists"] = vc is not None
+            if vc:
+                diag["voice_connected"] = vc.is_connected()
+                diag["voice_playing"] = vc.is_playing()
+                diag["voice_paused"] = vc.is_paused()
+                diag["voice_channel"] = str(vc.channel) if vc.channel else None
+                diag["voice_channel_id"] = vc.channel.id if vc.channel else None
+            else:
+                diag["voice_connected"] = False
+                diag["voice_playing"] = False
+
+        # 5. Current recitation
+        diag["current_recitation"] = current_recitation
+        diag["playlist_index"] = playlist_index
+        diag["is_radio_mode"] = is_radio_mode
+
+        # 6. Task loop status
+        diag["ensure_quran_vc_loop_running"] = ensure_quran_vc_stream.is_running()
+        diag["daily_schedule_loop_running"] = check_daily_schedule.is_running()
+
+        return web.Response(
+            text=_json.dumps(diag, indent=2, ensure_ascii=False, default=str),
+            content_type="application/json",
+            status=200
+        )
+
     app = web.Application()
     app.router.add_get("/", handle_ping)
     app.router.add_get("/health", handle_ping)
+    app.router.add_get("/voice-diagnostics", handle_voice_diagnostics)
 
     runner = web.AppRunner(app)
     await runner.setup()
