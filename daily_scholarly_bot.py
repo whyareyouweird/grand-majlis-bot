@@ -39,6 +39,30 @@ if sys.stdout:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# ==============================================================================
+# OPUS AUDIO ENGINE LOADER (Required for Discord Voice Playback on Linux / Render)
+# ==============================================================================
+if not discord.opus.is_loaded():
+    candidates = [
+        os.path.join(BASE_DIR, "libopus.so.0"),
+        os.path.join(BASE_DIR, "libopus.so"),
+        "libopus.so.0",
+        "libopus.so",
+        "opus",
+    ]
+    for candidate in candidates:
+        try:
+            discord.opus.load_opus(candidate)
+            print(f"🎵 Successfully loaded Opus audio engine: {candidate}")
+            break
+        except Exception:
+            pass
+
+    if not discord.opus.is_loaded():
+        print("⚠️ Notice: Discord Opus library could not be loaded via custom paths.")
+    else:
+        print("✅ Discord Opus voice transmission engine is fully active!")
+
 # Load token from environment or local .env file
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 if not TOKEN:
@@ -700,8 +724,9 @@ async def play_next_recitation(guild):
             before_options=FFMPEG_BEFORE_OPTS,
             options=FFMPEG_OPTS
         )
-        vc.play(source, after=after_playing)
-        print(f"▶️ [Quran Recitation VC] Now playing: {title} by {reciter}")
+        audio_volume = discord.PCMVolumeTransformer(source, volume=1.0)
+        vc.play(audio_volume, after=after_playing)
+        print(f"▶️ [Quran Recitation VC] Audio transmitting: {title} by {reciter}")
 
         # Update bot presence so everyone in the server sees what is playing
         try:
@@ -734,7 +759,7 @@ async def ensure_quran_vc_stream():
     if not vc or not vc.is_connected():
         try:
             print("Connecting bot to Quran Recitation VC...")
-            await quran_vc.connect(reconnect=True, timeout=30.0, self_deaf=True)
+            await quran_vc.connect(reconnect=True, timeout=30.0, self_deaf=False, self_mute=False)
             await asyncio.sleep(2)
             await play_next_recitation(guild)
         except Exception as e:
