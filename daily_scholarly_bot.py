@@ -44,11 +44,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ==============================================================================
 if not discord.opus.is_loaded():
     candidates = [
-        os.path.join(BASE_DIR, "libopus.so.0"),
-        os.path.join(BASE_DIR, "libopus.so"),
+        # System-installed (via apt-get install libopus0 in Docker)
         "libopus.so.0",
         "libopus.so",
         "opus",
+        # Bundled fallback
+        os.path.join(BASE_DIR, "libopus.so.0"),
+        os.path.join(BASE_DIR, "libopus.so"),
     ]
     for candidate in candidates:
         try:
@@ -637,6 +639,12 @@ async def post_daily_if_due(force=False):
 # ==============================================================================
 
 def get_ffmpeg_path():
+    """Get FFmpeg path — prefer system-installed (Docker apt) over imageio-ffmpeg static binary."""
+    import shutil
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        print(f"🎬 Using system FFmpeg: {system_ffmpeg}")
+        return system_ffmpeg
     try:
         import imageio_ffmpeg
         import stat
@@ -645,10 +653,10 @@ def get_ffmpeg_path():
             os.chmod(exe, os.stat(exe).st_mode | stat.S_IEXEC)
         except Exception:
             pass
+        print(f"🎬 Using imageio-ffmpeg: {exe}")
         return exe
     except Exception:
-        import shutil
-        return shutil.which("ffmpeg") or "ffmpeg"
+        return "ffmpeg"
 
 FFMPEG_BEFORE_OPTS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 3 -timeout 15000000 -nostdin"
 FFMPEG_OPTS = "-vn -loglevel warning"

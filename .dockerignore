@@ -1,0 +1,10 @@
+﻿__pycache__
+*.pyc
+.git
+.gitignore
+*.md
+bot_runtime.log
+daily_tracker.json
+*.bat
+*.vbs
+check_status.py

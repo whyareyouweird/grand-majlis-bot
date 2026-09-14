@@ -1,12 +1,13 @@
 services:
   - type: web
     name: grand-majlis-bot
-    runtime: python
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python daily_scholarly_bot.py
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: DISCORD_BOT_TOKEN
         sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: PORT
+        value: "10000"
