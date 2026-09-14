@@ -37,7 +37,11 @@ class LogCapture:
         self.original = original
     def write(self, s):
         if s:
-            RECENT_LOGS.append(s)
+            try:
+                text = s.decode('utf-8', errors='replace') if isinstance(s, bytes) else str(s)
+                RECENT_LOGS.append(text)
+            except Exception:
+                pass
         if self.original:
             try:
                 self.original.write(s)
@@ -855,56 +859,48 @@ async def play_next_recitation(guild):
             except Exception:
                 pass
 
-@tasks.loop(seconds=45)
+@tasks.loop(seconds=30)
 async def ensure_quran_vc_stream():
     """Ensure bot stays connected 24/7 in ┊・📖・quran-recitation-vc and continues playing."""
     guild = bot.get_guild(GUILD_ID)
     if not guild:
         return
 
-    quran_vc = discord.utils.get(guild.voice_channels, name="┊・📖・quran-recitation-vc")
+    QURAN_VC_ID = 1548478297996787756
+    quran_vc = guild.get_channel(QURAN_VC_ID)
+    if not quran_vc:
+        quran_vc = discord.utils.get(guild.voice_channels, name="┊・📖・quran-recitation-vc")
     if not quran_vc:
         quran_vc = next((c for c in guild.voice_channels if "quran-recitation-vc" in c.name), None)
     if not quran_vc:
         return
 
-    bot_member = guild.me
-    bot_voice = bot_member.voice if bot_member else None
     vc = guild.voice_client
 
-    # Case 1: Bot is already sitting in the Quran VC channel on Discord
-    if bot_voice and bot_voice.channel and bot_voice.channel.id == quran_vc.id:
-        if vc and vc.is_connected():
-            if not vc.is_playing() and not vc.is_paused():
-                print("Quran stream idle in VC. Resuming recitation...")
-                await play_next_recitation(guild)
-        return
-
-    # Case 2: Bot is sitting in a different voice channel, move it
-    if bot_voice and bot_voice.channel and bot_voice.channel.id != quran_vc.id:
-        if vc and vc.is_connected():
+    # 1. If we have an active connected VoiceClient:
+    if vc and vc.is_connected():
+        if vc.channel.id != quran_vc.id:
             try:
                 await vc.move_to(quran_vc)
             except Exception:
                 pass
+        if not vc.is_playing() and not vc.is_paused():
+            print("Quran stream idle in VC. Resuming recitation...")
+            await play_next_recitation(guild)
         return
 
-    # Case 3: Bot is not in any voice channel at all -> connect cleanly
-    if not bot_voice or not bot_voice.channel:
-        if vc:
-            try:
-                await vc.disconnect(force=True)
-            except Exception:
-                pass
-            vc = None
-
-        try:
-            print("Connecting bot to Quran Recitation VC...")
-            await quran_vc.connect(reconnect=True, timeout=30.0, self_deaf=False, self_mute=False)
-            await asyncio.sleep(2)
+    # 2. If we do NOT have an active connected VoiceClient:
+    try:
+        print("Connecting bot to Quran Recitation VC...")
+        vc = await quran_vc.connect(reconnect=True, timeout=30.0, self_deaf=False, self_mute=False)
+        await asyncio.sleep(2)
+        await play_next_recitation(guild)
+    except discord.ClientException as ce:
+        print(f"VoiceClient status notice: {ce}")
+        if vc and vc.is_connected() and not vc.is_playing():
             await play_next_recitation(guild)
-        except Exception as e:
-            print(f"Notice connecting to Quran VC: {e}")
+    except Exception as e:
+        print(f"Notice connecting to Quran VC: {e}")
 
 @tasks.loop(minutes=15)
 async def check_daily_schedule():
@@ -1533,11 +1529,15 @@ async def start_web_server():
 
     async def handle_logs(request):
         """Returns the recent stdout/stderr log output."""
-        return web.Response(
-            text="".join(RECENT_LOGS),
-            content_type="text/plain; charset=utf-8",
-            status=200
-        )
+        try:
+            content = "".join(str(x) for x in list(RECENT_LOGS))
+            return web.Response(
+                text=content if content else "No logs recorded yet.",
+                content_type="text/plain; charset=utf-8",
+                status=200
+            )
+        except Exception as err:
+            return web.Response(text=f"Log read error: {err}", status=200)
 
     app = web.Application()
     app.router.add_get("/", handle_ping)
