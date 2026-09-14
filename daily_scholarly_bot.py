@@ -209,8 +209,8 @@ db = None
 # ==============================================================================
 
 class TicketStaffView(discord.ui.View):
-    """Staff controls inside a member's verification ticket."""
-    def __init__(self, target_user_id: int, gender_type: str):
+    """Staff controls inside a member's verification ticket (persistent across restarts)."""
+    def __init__(self, target_user_id: int = None, gender_type: str = None):
         super().__init__(timeout=None)
         self.target_user_id = target_user_id
         self.gender_type = gender_type
@@ -223,45 +223,93 @@ class TicketStaffView(discord.ui.View):
             await interaction.response.send_message("❌ Only moderators can approve verification tickets.", ephemeral=True)
             return
 
-        role_name = "🧔 ∙ Brother" if self.gender_type.lower() == "brother" else "🧕 ∙ Sister"
+        await interaction.response.defer()
+
         guild = interaction.guild
+        target_id = self.target_user_id
+        gender = self.gender_type
+
+        # Recover target_id and gender if not set (e.g. after a bot restart)
+        if (not target_id or not gender) and interaction.channel.topic:
+            m_id = re.search(r"user_id:(\d+)", interaction.channel.topic)
+            if m_id:
+                target_id = int(m_id.group(1))
+            m_g = re.search(r"gender:(\w+)", interaction.channel.topic)
+            if m_g:
+                gender = m_g.group(1)
+
+        if not gender:
+            if "brother" in interaction.channel.name.lower():
+                gender = "brother"
+            elif "sister" in interaction.channel.name.lower():
+                gender = "sister"
+
+        if not target_id:
+            for target in interaction.channel.overwrites.keys():
+                if isinstance(target, discord.Member) and target.id != bot.user.id and not target.guild_permissions.manage_channels:
+                    target_id = target.id
+                    break
+
+        role_name = "🧔 ∙ Brother" if (gender and gender.lower() == "brother") else "🧕 ∙ Sister"
         role = discord.utils.get(guild.roles, name=role_name)
-        target_member = guild.get_member(self.target_user_id) or await guild.fetch_member(self.target_user_id)
+
+        target_member = None
+        if target_id:
+            target_member = guild.get_member(target_id)
+            if not target_member:
+                try:
+                    target_member = await guild.fetch_member(target_id)
+                except Exception:
+                    pass
 
         if not target_member:
-            await interaction.response.send_message("❌ Member not found in server.", ephemeral=True)
+            await interaction.followup.send("❌ Target member not found in server.", ephemeral=True)
             return
 
         if role:
-            await target_member.add_roles(role)
-            await interaction.response.send_message(
+            try:
+                await target_member.add_roles(role)
+            except Exception as e:
+                print(f"Error adding role: {e}")
+
+            await interaction.followup.send(
                 f"✅ **Approved by {interaction.user.mention}!**\n"
                 f"Granted **{role.name}** to {target_member.mention}.\n"
-                f"*This ticket will automatically close in 10 seconds...*"
+                f"*This ticket will automatically close in 5 seconds...*"
             )
-            button.disabled = True
-            await interaction.message.edit(view=self)
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)
             try:
                 await interaction.channel.delete()
             except Exception:
                 pass
         else:
-            await interaction.response.send_message(f"❌ Role '{role_name}' was not found.", ephemeral=True)
+            await interaction.followup.send(f"❌ Role '{role_name}' was not found in server.", ephemeral=True)
 
     @discord.ui.button(label="Close Ticket", emoji="🔒", style=discord.ButtonStyle.danger, custom_id="ticket_close_btn")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+
         perms = interaction.user.guild_permissions
-        if not (perms.manage_roles or perms.manage_channels or perms.administrator or interaction.user.id == self.target_user_id):
-            await interaction.response.send_message("❌ You do not have permission to close this ticket.", ephemeral=True)
+        is_mod = perms.manage_roles or perms.manage_channels or perms.administrator
+
+        target_id = self.target_user_id
+        if not target_id and interaction.channel.topic:
+            m = re.search(r"user_id:(\d+)", interaction.channel.topic)
+            if m:
+                target_id = int(m.group(1))
+
+        is_owner = target_id and interaction.user.id == target_id
+
+        if not (is_mod or is_owner):
+            await interaction.followup.send("❌ You do not have permission to close this ticket.", ephemeral=True)
             return
 
-        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
-        await asyncio.sleep(5)
+        await interaction.followup.send(f"🔒 **Ticket closing by {interaction.user.mention}...**")
+        await asyncio.sleep(2)
         try:
             await interaction.channel.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error deleting ticket channel: {e}")
 
 
 class VerificationDashboardView(discord.ui.View):
@@ -310,7 +358,7 @@ class VerificationDashboardView(discord.ui.View):
         ticket_ch = await cat_tickets.create_text_channel(
             name=ticket_name,
             overwrites=overwrites,
-            topic=f"Voice verification for {user.name} ({gender_type})"
+            topic=f"Voice verification for {user.name} ({gender_type}) | user_id:{user.id} | gender:{gender_type.lower()}"
         )
 
         # 6. Generate clean sentence stating their exact username
@@ -929,6 +977,7 @@ async def on_ready():
     
     # Register persistent views
     bot.add_view(VerificationDashboardView())
+    bot.add_view(TicketStaffView())
     
     guild = bot.get_guild(GUILD_ID)
     if guild:
@@ -1426,6 +1475,29 @@ async def cmd_reciter(ctx, *, name: str = None):
 
     if ctx.guild.voice_client and ctx.guild.voice_client.is_connected():
         await play_next_recitation(ctx.guild)
+
+@bot.command(name="close")
+async def cmd_close(ctx):
+    """Close and delete the current ticket channel."""
+    is_ticket = ctx.channel.name.startswith("verify-") or "ticket" in (ctx.channel.category.name.lower() if ctx.channel.category else "")
+    if not is_ticket:
+        await ctx.send("❌ This command can only be used inside a verification ticket channel.")
+        return
+
+    perms = ctx.author.guild_permissions
+    is_mod = perms.manage_channels or perms.manage_roles or perms.administrator
+    is_owner = ctx.channel.topic and f"user_id:{ctx.author.id}" in ctx.channel.topic
+
+    if not (is_mod or is_owner):
+        await ctx.send("❌ You do not have permission to close this ticket.")
+        return
+
+    await ctx.send(f"🔒 **Ticket closing by {ctx.author.mention}...**")
+    await asyncio.sleep(2)
+    try:
+        await ctx.channel.delete()
+    except Exception as e:
+        print(f"Error deleting ticket via !close: {e}")
 
 async def start_web_server():
     """Starts a lightweight HTTP server for Render / cloud health checks when PORT is set."""
