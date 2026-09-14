@@ -1533,7 +1533,8 @@ async def start_web_server():
             content = "".join(str(x) for x in list(RECENT_LOGS))
             return web.Response(
                 text=content if content else "No logs recorded yet.",
-                content_type="text/plain; charset=utf-8",
+                content_type="text/plain",
+                charset="utf-8",
                 status=200
             )
         except Exception as err:
