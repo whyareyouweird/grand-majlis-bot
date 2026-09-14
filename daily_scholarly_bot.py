@@ -661,29 +661,19 @@ def get_ffmpeg_path():
 FFMPEG_BEFORE_OPTS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 3 -timeout 15000000 -nostdin"
 FFMPEG_OPTS = "-vn -loglevel warning"
 
+# Load all 54 authentic tracks for Sheikh Abdullah Al-Qarni from Internet Archive
+QARNI_TRACKS = {}
+qarni_file = os.path.join(BASE_DIR, "qarni_tracks.json")
+if os.path.exists(qarni_file):
+    try:
+        with open(qarni_file, "r", encoding="utf-8") as f:
+            QARNI_TRACKS = {int(k): v for k, v in json.load(f).items()}
+        print(f"📖 Loaded {len(QARNI_TRACKS)} authentic tracks for Sheikh Abdullah Al-Qarni!")
+    except Exception as e:
+        print(f"Notice loading qarni_tracks: {e}")
+
 QURAN_RECITERS = [
-    {"name": "Sheikh Abdullah Al-Qarni", "url": None, "tracks": {
-        2: "https://archive.org/download/20240319_20240319_2017/002%20%20%202%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%A8%D9%82%D8%B1%D8%A9%20%D9%83%D8%A7%D9%85%D9%84%D8%A9%20%D9%80%20%D9%84%D8%A3%D9%88%D9%84%20%D9%85%D8%B1%D8%A9%20%D9%85%D9%86%20%D9%84%D9%8A%D8%A7%D9%84%D9%8A%20%D8%B1%D9%85%D8%B6%D8%A7%D9%86%201442%D9%87%D9%80%20%D9%80%20%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%D8%B4%D8%A8%D9%8A%D9%87%20%D8%A7%D9%84%D8%B4%D9%8A%D8%AE%20%D9%8A%D8%A7%D8%B3%D8%B1%20%D8%A7%D9%84%D8%AF%D9%88%D8%B3%D8%B1%D9%8A.mp3",
-        3: "https://archive.org/download/20240319_20240319_2017/003%20%20%203%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%20%D8%B9%D9%85%D8%B1%D8%A7%D9%86%20%D9%83%D8%A7%D9%85%D9%84%D8%A9%20%D9%85%D9%86%20%D8%A3%D8%AC%D9%85%D9%84%20%D9%88%D8%A3%D8%B1%D9%88%D8%B9%20%D8%A7%D9%84%D8%AA%D9%84%D8%A7%D9%88%D8%A7%D8%AA%20%D9%85%D9%86%20%D9%84%D9%8A%D8%A7%D9%84%D9%8A%20%D8%B1%D9%85%D8%B6%D8%A7%D9%861442%D9%87%D9%80%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%D8%B4%D8%A8%D9%8A%D9%87%20%D8%A7%D9%84%D8%AF%D9%88%D8%B3%D8%B1%D9%8A.mp3",
-        4: "https://archive.org/download/20240319_20240319_2017/004%20%20%204%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D9%86%D8%B3%D8%A7%D8%A1%20%D9%83%D8%A7%D9%85%D9%84%D8%A9%20%20%D8%AA%D9%84%D8%A7%D9%88%D8%A9%20%D9%85%D9%85%D9%8A%D8%B2%D8%A9%20%D9%85%D9%86%20%D9%84%D9%8A%D8%A7%D9%84%D9%8A%20%D8%B1%D9%85%D8%B6%D8%A7%D9%86%201442%D9%87%D9%80%20%D9%84%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-        18: "https://archive.org/download/20240319_20240319_2017/018%20%20%2018%20%20%D8%A7%D9%84%D8%B4%D9%8A%D8%AE%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D9%83%D9%87%D9%81.mp3",
-        19: "https://archive.org/download/20240319_20240319_2017/019%20%20%2019%20%20%D8%AA%D8%AD%D8%A8%D9%8A%D8%B1%20%D8%B1%D8%A7%D8%A6%D8%B9%20%D9%84%D8%A3%D8%AC%D9%85%D9%84%20%D8%AA%D8%B1%D8%AA%D9%8A%D9%84%20%D8%AA%D8%B3%D9%85%D8%B9%D9%87%20%D9%84%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%D9%85%D9%86%20%D8%B3%D9%88%D8%B1%D8%A9%20%D9%85%D8%B1%D9%8A%D9%85%201444%D9%87%D9%80.mp3",
-        21: "https://archive.org/download/20240319_20240319_2017/021%20%20%20%2021%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%A3%D9%86%D8%A8%D9%8A%D8%A7%D8%A1%20%D9%86%D9%88%D8%B9%20%D9%85%D9%86%20%D8%A3%D9%86%D9%88%D8%A7%D8%B9%20%D8%A7%D9%84%D8%AC%D9%85%D8%A7%D9%84%20%D9%88%D8%A7%D9%84%D8%AE%D8%B4%D9%88%D8%B9%20%D9%88%D8%A7%D9%84%D9%81%D8%B1%D8%A7%D8%AF%D8%A9_.%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%D9%8A%D8%A8%D8%AF%D8%B9%20%D9%88%D9%8A%D8%AD%D8%A8%D8%B1%20%D8%A8%D8%A3%D8%AE%D8%B4%D8%B9%20%D8%A3%D8%AF%D8%A7%D8%A1%20%D8%AA%D8%B3%D9%85%D8%B9%D9%87...mp3",
-        36: "https://archive.org/download/20240319_20240319_2017/036%20%20%20%2036%20%20%D9%83%D8%B1%D9%88%D9%85%D8%A7%20%D8%B4%D8%A7%D8%B4%D8%A9%20%D8%B3%D9%88%D8%AF%D8%A7%D8%A1%20%D9%82%D8%B1%D8%A2%D9%86%20%D9%83%D8%B1%D9%8A%D9%85%20%F0%9F%8C%BF%D8%AA%D9%84%D8%A7%D9%88%D8%A9%20%D9%85%D9%86%20%D8%B3%D9%88%D8%B1%D8%A9%20%D9%8A%D8%B3%20%F0%9F%8C%BF%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%D9%80%20%D8%B9%D8%B4%D8%A7%D8%A6%D9%8A%D8%A7%D8%AA%201443%20%D9%87%D9%80.mp3",
-        39: "https://archive.org/download/20240319_20240319_2017/039%20%20%2039%20%20%D9%85%D9%82%D8%AA%D8%B7%D9%81%D8%A7%D8%AA%20%D8%AE%D8%A7%D8%B4%D8%B9%D8%A9%20%D9%88%D8%A8%D8%A7%D9%83%D9%8A%D8%A9%20%D9%85%D9%86%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%B2%D9%85%D8%B1%20%20%D9%88%D9%85%D8%AD%D8%A7%D9%83%D8%A7%D8%AA%20%D8%B1%D8%A7%D8%A6%D8%B9%D8%A9%20%D9%84%D8%A3%D8%AF%D8%A7%D8%A1%20%D8%A7%D9%84%D8%B4%D9%8A%D8%AE%20%D9%8A%D8%A7%D8%B3%D8%B1%20%D8%A7%D9%84%D8%AF%D9%88%D8%B3%D8%B1%D9%8A%20%D9%84%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-        50: "https://archive.org/download/20240319_20240319_2017/050%20%20%20%2050%20%20%F0%9F%8C%B8%20%D9%85%D8%A7%20%D8%AA%D9%8A%D8%B3%D8%B1%20%D9%85%D9%86%20%7B%20%D8%B3%D9%88%D8%B1%D8%A9%20%D9%82%20%7D%20%F0%9F%8C%B8%20%D8%AA%D9%84%D8%A7%D9%88%D8%A9%20%D8%AE%D8%A7%D8%B4%D8%B9%D8%A9%20%D9%84%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%20%D8%B4%D8%A8%D9%8A%D9%87%20%D8%A7%D9%84%D8%B4%D9%8A%D8%AE%20%D9%8A%D8%A7%D8%B3%D8%B1%20%D8%A7%D9%84%D8%AF%D9%88%D8%B3%D8%B1%D9%8A.mp3",
-        55: "https://archive.org/download/20240319_20240319_2017/055%20%20%2055%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D9%83%D8%A7%D9%85%D9%84%D8%A9%20%D9%85%D9%86%20%D8%B9%D8%B4%D8%A7%D8%A6%D9%8A%D8%A7%D8%AA%20%D8%B4%D9%87%D8%B1%20%D8%B1%D9%85%D8%B6%D8%A7%D9%86%201442%D9%87%D9%80%20%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-        56: "https://archive.org/download/20240319_20240319_2017/056%20%20%2056%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D9%88%D8%A7%D9%82%D8%B9%D9%87%20%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-        72: "https://archive.org/download/20240319_20240319_2017/072%20%20%20%2072%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%AC%D9%86%20-%20%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-        73: "https://archive.org/download/20240319_20240319_2017/073%20%20%20%2073%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D9%85%D8%B2%D9%85%D9%84%20-%20%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-        75: "https://archive.org/download/20240319_20240319_2017/075%20%20%20%2075%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D9%82%D9%8A%D8%A7%D9%85%D8%A9%20%D9%83%D8%A7%D9%85%D9%84%D8%A9%20%D8%AA%D9%84%D8%A7%D9%88%D8%A9%20%D8%AE%D8%A7%D8%B4%D8%B9%D8%A9%20%D9%80%20%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%D9%80%20%D8%B1%D9%85%D8%B6%D8%A7%D9%86%201442%D9%87%D9%80.mp3",
-        76: "https://archive.org/download/20240319_20240319_2017/076%20%20%20%20%2076%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%A5%D9%86%D8%B3%D8%A7%D9%86%20%20%D9%85%D9%86%20%D9%86%D9%88%D8%A7%D8%AF%D8%B1%20%D8%A7%D9%84%D8%AA%D9%84%D8%A7%D9%88%D8%A7%D8%AA%20%D9%84%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%D9%85%D8%AD%D8%A7%D9%83%D9%8A%D8%A7%D9%8B%20%D8%A7%D9%84%D8%B4%D9%8A%D8%AE%20%D9%8A%D8%A7%D8%B3%D8%B1%20%D8%A7%D9%84%D8%AF%D9%88%D8%B3%D8%B1%D9%8A%20%D9%82%D8%AF%D9%8A%D9%85%D8%A7%D9%8B%20%281%29.mp3",
-        82: "https://archive.org/download/20240319_20240319_2017/082%20%20%20%20%2082%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%A5%D9%86%D9%81%D8%B7%D8%A7%D8%B1%20%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-        86: "https://archive.org/download/20240319_20240319_2017/086%20%20%20%2086%20%20%D8%AE%D8%B4%D9%88%D8%B9%20%D9%84%D8%A7%20%D9%85%D8%AB%D9%8A%D9%84%20%D9%84%D9%87%20%D9%88%D9%86%D8%A8%D8%B1%D8%A9%20%D9%81%D8%B1%D9%8A%D8%AF%D8%A9%20%D9%84%D9%86%20%D8%AA%D8%AC%D8%AF%20%D9%85%D8%AB%D9%84%D9%87%D8%A7%20%D9%85%D8%B9%20%D9%87%D8%B0%D8%A7%20%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%21%21%20%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%B7%D8%A7%D8%B1%D9%82.mp3",
-        90: "https://archive.org/download/20240319_20240319_2017/090%20%20%2090%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%D8%A7%D9%84%D8%A8%D9%84%D8%AF%20%D9%85%D9%86%20%D8%A7%D8%B1%D9%88%D8%B9%20%D8%A7%D9%84%D8%AA%D9%84%D8%A7%D9%88%D8%A7%D8%AA%20%D8%A7%D9%84%D9%82%D8%A7%D8%B1%D8%A6%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A%201442%D9%87%D9%80.mp3",
-        95: "https://archive.org/download/20240319_20240319_2017/095%20%20%20%2095%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%28%20%D8%A7%D9%84%D8%AA%D9%8A%D9%86%20%29%20%D9%84%D9%84%D8%B4%D9%8A%D8%AE%20%D8%A7%D9%84%D8%AF%D9%83%D8%AA%D9%88%D8%B1%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A8%D9%86%20%D9%86%D8%A7%D8%B5%D8%B1%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-        97: "https://archive.org/download/20240319_20240319_2017/097%20%20%20%2097%20%20%D8%B3%D9%88%D8%B1%D8%A9%20%28%20%D8%A7%D9%84%D9%82%D8%AF%D8%B1%20%29%20%D9%84%D9%84%D8%B4%D9%8A%D8%AE%20%D8%A7%D9%84%D8%AF%D9%83%D8%AA%D9%88%D8%B1%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87%20%D8%A8%D9%86%20%D9%86%D8%A7%D8%B5%D8%B1%20%D8%A7%D9%84%D9%82%D8%B1%D9%86%D9%8A.mp3",
-    }},
+    {"name": "Sheikh Abdullah Al-Qarni", "url": None, "tracks": QARNI_TRACKS},
     {"name": "Sheikh Mishary Rashid Alafasy", "url": "https://server8.mp3quran.net/afs/{surah:03d}.mp3"},
     {"name": "Sheikh Abdul Basit Abdul Samad", "url": "https://server7.mp3quran.net/basit/{surah:03d}.mp3"},
     {"name": "Sheikh Yasser Al-Dossari", "url": "https://server11.mp3quran.net/yasser/{surah:03d}.mp3"},
@@ -711,11 +701,12 @@ current_recitation = {
     "url": None
 }
 is_radio_mode = False
+selected_reciter_mode = "qarni"  # Default: Sheikh Abdullah Al-Qarni (54 Surahs rotation)
 _play_lock = asyncio.Lock()
 
 async def play_next_recitation(guild):
     """Play the next beautiful Surah recitation or live stream."""
-    global playlist_index, current_recitation, is_radio_mode
+    global playlist_index, current_recitation, is_radio_mode, selected_reciter_mode
 
     vc = guild.voice_client
     if not vc or not vc.is_connected():
@@ -739,6 +730,24 @@ async def play_next_recitation(guild):
                 title = "24/7 Live Tarateel Radio"
                 reciter = "Various World Renowned Qaris"
                 current_recitation = {"title": title, "reciter": reciter, "surah_num": None, "url": url}
+            elif selected_reciter_mode == "qarni" and QARNI_TRACKS:
+                qarni_keys = sorted(QARNI_TRACKS.keys())
+                surah_num = qarni_keys[playlist_index % len(qarni_keys)]
+                playlist_index += 1
+                url = QARNI_TRACKS[surah_num]
+                reciter = "Sheikh Abdullah Al-Qarni"
+
+                surah_name = f"Surah #{surah_num}"
+                if db and "quran_en" in db and surah_num <= len(db["quran_en"]):
+                    surah_name = f"Surah {db['quran_en'][surah_num - 1]['englishName']}"
+
+                title = surah_name
+                current_recitation = {
+                    "title": title,
+                    "reciter": reciter,
+                    "surah_num": surah_num,
+                    "url": url
+                }
             else:
                 # Try up to len(FAVORITE_SURAHS) times to find a valid surah+reciter combo
                 url = None
@@ -1326,6 +1335,53 @@ async def cmd_radio(ctx):
     if ctx.guild.voice_client and ctx.guild.voice_client.is_connected():
         await play_next_recitation(ctx.guild)
 
+@bot.command(name="qarni")
+async def cmd_qarni(ctx):
+    """Switch recitation exclusively to Sheikh Abdullah Al-Qarni (54 Surahs)."""
+    global selected_reciter_mode, is_radio_mode
+    selected_reciter_mode = "qarni"
+    is_radio_mode = False
+    await ctx.send("🎙️ Quran voice stream set exclusively to: **Sheikh Abdullah Al-Qarni** (54 Surahs rotation) 🕊️")
+    if ctx.guild.voice_client and ctx.guild.voice_client.is_connected():
+        await play_next_recitation(ctx.guild)
+
+@bot.command(name="reciter")
+async def cmd_reciter(ctx, *, name: str = None):
+    """View or change the active reciter (e.g. !reciter qarni, !reciter rotate)."""
+    global selected_reciter_mode, is_radio_mode
+    if not name:
+        mode_desc = "Sheikh Abdullah Al-Qarni (54 Surahs)" if selected_reciter_mode == "qarni" else "Rotating All 10+ Iconic Qaris"
+        embed = discord.Embed(
+            title="🎙️ ∙ Quran Reciters Settings",
+            description=(
+                f"**Current Active Mode:** `{mode_desc}`\n\n"
+                f"**Available Commands:**\n"
+                f"• `!reciter qarni` or `!qarni` — Sheikh Abdullah Al-Qarni (54 Surahs)\n"
+                f"• `!reciter rotate` / `!reciter all` — Rotates across 10+ Iconic Qaris\n"
+                f"• `!radio` — 24/7 Live Tarateel Radio\n"
+                f"• `!skip` — Skip to next Surah\n"
+                f"• `!np` — View currently reciting Surah & Qari"
+            ),
+            color=0xFFFFFF
+        )
+        await ctx.send(embed=embed)
+        return
+
+    name_lower = name.lower().strip()
+    if "qarni" in name_lower or "abdullah" in name_lower:
+        selected_reciter_mode = "qarni"
+        is_radio_mode = False
+        await ctx.send("🎙️ Quran voice stream set to: **Sheikh Abdullah Al-Qarni** (54 Surahs) 🕊️")
+    elif "rotate" in name_lower or "all" in name_lower:
+        selected_reciter_mode = "rotate"
+        is_radio_mode = False
+        await ctx.send("🎙️ Quran voice stream set to: **Rotating All Iconic Qaris** 🕊️")
+    else:
+        await ctx.send(f"Unknown mode `{name}`. Available options: `!reciter qarni` or `!reciter rotate`.")
+
+    if ctx.guild.voice_client and ctx.guild.voice_client.is_connected():
+        await play_next_recitation(ctx.guild)
+
 async def start_web_server():
     """Starts a lightweight HTTP server for Render / cloud health checks when PORT is set."""
     port_str = os.environ.get("PORT")
@@ -1390,6 +1446,8 @@ async def start_web_server():
         diag["current_recitation"] = current_recitation
         diag["playlist_index"] = playlist_index
         diag["is_radio_mode"] = is_radio_mode
+        diag["selected_reciter_mode"] = selected_reciter_mode
+        diag["qarni_tracks_count"] = len(QARNI_TRACKS)
         diag["play_lock_held"] = _play_lock.locked()
 
         # 6. Task loop status
