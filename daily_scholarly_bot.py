@@ -821,9 +821,13 @@ async def play_next_recitation(guild):
                     print(f"Quran playback finished with note: {error}")
                 else:
                     print(f"✅ Finished playing: {current_recitation.get('title', '?')}")
-                # Schedule the next track on the event loop
+
+                async def delayed_next():
+                    await asyncio.sleep(1.0)
+                    await play_next_recitation(guild)
+
                 try:
-                    asyncio.run_coroutine_threadsafe(play_next_recitation(guild), bot.loop)
+                    asyncio.run_coroutine_threadsafe(delayed_next(), bot.loop)
                 except Exception as schedule_err:
                     print(f"⚠️ Could not schedule next track: {schedule_err}")
 
@@ -890,6 +894,14 @@ async def ensure_quran_vc_stream():
         return
 
     # 2. If we do NOT have an active connected VoiceClient:
+    if vc and not vc.is_connected():
+        print("Found disconnected VoiceClient, cleaning up before reconnect...")
+        try:
+            await vc.disconnect(force=True)
+        except Exception:
+            pass
+        vc = None
+
     try:
         print("Connecting bot to Quran Recitation VC...")
         vc = await quran_vc.connect(reconnect=True, timeout=30.0, self_deaf=False, self_mute=False)
