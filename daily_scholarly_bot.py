@@ -28,14 +28,41 @@ import datetime
 import traceback
 import asyncio
 import re
-from collections import defaultdict
+from collections import defaultdict, deque
 
-# Ensure UTF-8 output
+RECENT_LOGS = deque(maxlen=250)
+
+class LogCapture:
+    def __init__(self, original):
+        self.original = original
+    def write(self, s):
+        if s:
+            RECENT_LOGS.append(s)
+        if self.original:
+            try:
+                self.original.write(s)
+            except Exception:
+                pass
+    def flush(self):
+        if self.original:
+            try:
+                self.original.flush()
+            except Exception:
+                pass
+
 if sys.stdout:
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
         pass
+    sys.stdout = LogCapture(sys.stdout)
+
+if sys.stderr:
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+    sys.stderr = LogCapture(sys.stderr)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -828,7 +855,7 @@ async def play_next_recitation(guild):
             except Exception:
                 pass
 
-@tasks.loop(seconds=15)
+@tasks.loop(seconds=45)
 async def ensure_quran_vc_stream():
     """Ensure bot stays connected 24/7 in ┊・📖・quran-recitation-vc and continues playing."""
     guild = bot.get_guild(GUILD_ID)
@@ -841,15 +868,36 @@ async def ensure_quran_vc_stream():
     if not quran_vc:
         return
 
+    bot_member = guild.me
+    bot_voice = bot_member.voice if bot_member else None
     vc = guild.voice_client
-    if vc and not vc.is_connected():
-        try:
-            await vc.disconnect(force=True)
-        except Exception:
-            pass
-        vc = None
 
-    if not vc or not vc.is_connected():
+    # Case 1: Bot is already sitting in the Quran VC channel on Discord
+    if bot_voice and bot_voice.channel and bot_voice.channel.id == quran_vc.id:
+        if vc and vc.is_connected():
+            if not vc.is_playing() and not vc.is_paused():
+                print("Quran stream idle in VC. Resuming recitation...")
+                await play_next_recitation(guild)
+        return
+
+    # Case 2: Bot is sitting in a different voice channel, move it
+    if bot_voice and bot_voice.channel and bot_voice.channel.id != quran_vc.id:
+        if vc and vc.is_connected():
+            try:
+                await vc.move_to(quran_vc)
+            except Exception:
+                pass
+        return
+
+    # Case 3: Bot is not in any voice channel at all -> connect cleanly
+    if not bot_voice or not bot_voice.channel:
+        if vc:
+            try:
+                await vc.disconnect(force=True)
+            except Exception:
+                pass
+            vc = None
+
         try:
             print("Connecting bot to Quran Recitation VC...")
             await quran_vc.connect(reconnect=True, timeout=30.0, self_deaf=False, self_mute=False)
@@ -857,17 +905,6 @@ async def ensure_quran_vc_stream():
             await play_next_recitation(guild)
         except Exception as e:
             print(f"Notice connecting to Quran VC: {e}")
-    else:
-        # If in wrong voice channel, move to quran_vc
-        if vc.channel.id != quran_vc.id:
-            try:
-                await vc.move_to(quran_vc)
-            except Exception:
-                pass
-        # If connected but stopped/idle, advance to next recitation
-        if not vc.is_playing() and not vc.is_paused():
-            print("Quran stream idle. Resuming recitation...")
-            await play_next_recitation(guild)
 
 @tasks.loop(minutes=15)
 async def check_daily_schedule():
@@ -1494,9 +1531,18 @@ async def start_web_server():
             status=200
         )
 
+    async def handle_logs(request):
+        """Returns the recent stdout/stderr log output."""
+        return web.Response(
+            text="".join(RECENT_LOGS),
+            content_type="text/plain; charset=utf-8",
+            status=200
+        )
+
     app = web.Application()
     app.router.add_get("/", handle_ping)
     app.router.add_get("/health", handle_ping)
+    app.router.add_get("/logs", handle_logs)
     app.router.add_get("/voice-diagnostics", handle_voice_diagnostics)
 
     runner = web.AppRunner(app)
